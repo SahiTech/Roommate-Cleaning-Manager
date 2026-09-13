@@ -1,19 +1,18 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { useRouter, useSearchParams } from 'next/navigation';
+import { useRouter } from 'next/navigation';
 import { supabase } from '@/lib/supabase';
 
 export default function AuthCallbackPage() {
   const router = useRouter();
-  const params = useSearchParams();
   const [message, setMessage] = useState('Completing secure sign-in…');
 
   useEffect(() => {
     let active = true;
     const finish = async () => {
       try {
-        const code = params.get('code');
+        const code = new URLSearchParams(window.location.search).get('code');
         const db = await supabase();
         if (code) {
           const { error } = await db.auth.exchangeCodeForSession(code);
@@ -29,7 +28,7 @@ export default function AuthCallbackPage() {
     };
     void finish();
     return () => { active = false; };
-  }, [params, router]);
+  }, [router]);
 
   return <main className="shell"><section className="auth-card"><div className="logo">RC</div><div className="eyebrow">ROOMMATE CLEANING MANAGER</div><h1>Signing you in…</h1><p className="muted">{message}</p></section></main>;
 }
