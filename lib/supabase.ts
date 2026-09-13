@@ -1,4 +1,5 @@
-import { createBrowserClient, type SupabaseClient } from '@supabase/ssr';
+import { createBrowserClient } from '@supabase/ssr';
+import type { SupabaseClient } from '@supabase/supabase-js';
 
 let clientPromise: Promise<SupabaseClient> | undefined;
 
@@ -14,7 +15,7 @@ export async function supabase(): Promise<SupabaseClient> {
         if (!response.ok || !data.url || !data.key) {
           throw new Error(data.error || 'Supabase configuration is unavailable.');
         }
-        return createBrowserClient(data.url, data.key);
+        return createBrowserClient(data.url, data.key) as SupabaseClient;
       })
       .catch((error) => {
         clientPromise = undefined;
