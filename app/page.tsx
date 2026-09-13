@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { Bell, CheckCircle2, Clock3, Copy, LogOut, Plus, RefreshCw, Settings, Share2, Sparkles, Trash2, Users } from 'lucide-react';
 import { supabase } from '@/lib/supabase';
 
@@ -11,11 +11,16 @@ type Schedule = { id: string; room_id: string; member_id: string; weekday: numbe
 type Task = { id: string; room_id: string; member_id: string; duty_date: string; due_at: string; status: 'pending' | 'completed' | 'overdue' | 'missed'; completed_at: string | null; confirmation_note?: string | null };
 type Notice = { id: string; member_id: string; task_id: string | null; type: string; title: string; body: string; created_at: string; read_at: string | null };
 
-declare global { interface Window { __roommateInstallPrompt?: Event & { prompt: () => Promise<void> } } }
+declare global { interface Window { __roommateInstallPrompt?: { prompt: () => Promise<void> } } }
 
 const days = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
-const todayKey = () => new Date().toISOString().slice(0, 10);
 const b64ToBytes = (value: string) => { const padding = '='.repeat((4 - value.length % 4) % 4); const raw = atob((value + padding).replace(/-/g, '+').replace(/_/g, '/')); return Uint8Array.from(raw, (c) => c.charCodeAt(0)); };
+
+function zonedParts(timezone: string) {
+  const parts = new Intl.DateTimeFormat('en-US', { timeZone: timezone, weekday: 'long', year: 'numeric', month: '2-digit', day: '2-digit' }).formatToParts(new Date());
+  const get = (type: string) => parts.find((p) => p.type === type)?.value || '';
+  return { date: `${get('year')}-${get('month')}-${get('day')}`, weekday: days.indexOf(get('weekday')) };
+}
 
 export default function Home() {
   const [user, setUser] = useState<User | null>(null);
@@ -44,8 +49,9 @@ export default function Home() {
   const active = members.filter((m) => m.active);
   const me = active.find((m) => m.user_id === user?.id);
   const isAdmin = me?.role === 'admin';
-  const day = new Date().getDay();
-  const todayTask = tasks.find((t) => t.duty_date === todayKey());
+  const timezone = room?.timezone || Intl.DateTimeFormat().resolvedOptions().timeZone || 'Asia/Dhaka';
+  const { date: todayDate, weekday: day } = zonedParts(timezone);
+  const todayTask = tasks.find((t) => t.duty_date === todayDate);
   const todaySchedule = schedules.find((s) => s.weekday === day && s.active);
   const todayPerson = active.find((m) => m.id === (todayTask?.member_id || todaySchedule?.member_id));
   const unread = notices.filter((n) => !n.read_at).length;
@@ -58,25 +64,21 @@ export default function Home() {
     }
   }, []);
 
-  const loadRooms = useCallback(async (currentUser: User) => {
+  const loadRooms = useCallback(async () => {
     const db = await supabase();
-    let { data, error: roomsError } = await db.from('rooms').select('id,name,owner_user_id,timezone').order('created_at');
+    const { data, error: roomsError } = await db.from('rooms').select('id,name,owner_user_id,timezone').order('created_at');
     if (roomsError) throw roomsError;
-    if (!data?.length) {
-      try { await db.rpc('claim_existing_room', { p_name: currentUser.user_metadata?.full_name || currentUser.email?.split('@')[0] || null }); } catch (_) {}
-      const result = await db.from('rooms').select('id,name,owner_user_id,timezone').order('created_at');
-      if (result.error) throw result.error;
-      data = result.data || [];
-    }
-    setRooms(data || []);
-    const selected = (data || []).find((r) => r.id === room?.id) || data?.[0] || null;
+    const list = data || [];
+    setRooms(list);
+    const selected = list.find((r) => r.id === room?.id) || list[0] || null;
     setRoom(selected);
     return selected;
   }, [room?.id]);
 
   const loadRoom = useCallback(async (selected: Room) => {
     const db = await supabase();
-    await db.rpc('ensure_room_tasks', { p_room_id: selected.id, p_days: 14 });
+    const taskResult = await db.rpc('ensure_room_tasks', { p_room_id: selected.id, p_days: 14 });
+    if (taskResult.error) throw taskResult.error;
     const [m, s, t] = await Promise.all([
       db.from('members').select('*').eq('room_id', selected.id).eq('active', true).order('created_at'),
       db.from('cleaning_schedules').select('*').eq('room_id', selected.id).eq('active', true).order('weekday'),
@@ -87,14 +89,15 @@ export default function Home() {
     const currentMember = (m.data || []).find((x) => x.user_id === user?.id);
     if (currentMember) {
       const n = await db.from('notification_events').select('*').eq('member_id', currentMember.id).order('created_at', { ascending: false }).limit(30);
-      if (!n.error) setNotices(n.data || []);
-    }
+      if (n.error) throw n.error;
+      setNotices(n.data || []);
+    } else setNotices([]);
   }, [user?.id]);
 
   const refresh = useCallback(async () => {
     if (!user) return;
     setLoading(true); setError('');
-    try { const selected = await loadRooms(user); if (selected) await loadRoom(selected); }
+    try { const selected = await loadRooms(); if (selected) await loadRoom(selected); }
     catch (e) { setError(e instanceof Error ? e.message : 'Unable to load your workspace.'); }
     finally { setLoading(false); }
   }, [user, loadRooms, loadRoom]);
@@ -106,18 +109,36 @@ export default function Home() {
         const db = await supabase();
         const { data } = await db.auth.getUser();
         if (mounted) setUser((data.user as User | null) || null);
+        const { data: listener } = db.auth.onAuthStateChange((_event, session) => {
+          if (mounted) setUser((session?.user as User | null) || null);
+        });
+        if (!mounted) listener.subscription.unsubscribe();
+        else (window as Window & { __roommateAuthCleanup?: () => void }).__roommateAuthCleanup = () => listener.subscription.unsubscribe();
       } catch (e) { if (mounted) setError(e instanceof Error ? e.message : 'Unable to initialize.'); }
       if (mounted) setLoading(false);
     })();
-    return () => { mounted = false; };
+    return () => {
+      mounted = false;
+      (window as Window & { __roommateAuthCleanup?: () => void }).__roommateAuthCleanup?.();
+      delete (window as Window & { __roommateAuthCleanup?: () => void }).__roommateAuthCleanup;
+    };
   }, []);
 
   useEffect(() => {
-    const handler = () => setInstallPrompt(true);
+    const handler = (event: Event) => {
+      const promptEvent = event as Event & { prompt: () => Promise<void> };
+      window.__roommateInstallPrompt = { prompt: promptEvent.prompt.bind(promptEvent) };
+      setInstallPrompt(true);
+    };
     window.addEventListener('beforeinstallprompt', handler);
     if ('serviceWorker' in navigator) void navigator.serviceWorker.register('/sw.js');
     return () => window.removeEventListener('beforeinstallprompt', handler);
   }, []);
+
+  useEffect(() => {
+    const code = new URLSearchParams(window.location.search).get('join');
+    if (code) { setJoinCode(code); setShowJoin(true); }
+  }, [user?.id]);
 
   useEffect(() => { if (user) void refresh(); }, [user, refresh]);
 
@@ -141,11 +162,12 @@ export default function Home() {
     const check = () => {
       const now = Date.now();
       tasks.filter((t) => t.status === 'pending').forEach((t) => {
-        const schedule = schedules.find((s) => s.id === t.id || s.member_id === t.member_id);
+        const taskDay = new Date(`${t.duty_date}T12:00:00Z`).getUTCDay();
+        const schedule = schedules.find((s) => s.member_id === t.member_id && s.weekday === taskDay);
         const reminder = (schedule?.reminder_minutes ?? 15) * 60_000;
         const escalation = (schedule?.escalation_minutes ?? 120) * 60_000;
         const due = new Date(t.due_at).getTime();
-        const keys = [`rem:${t.id}`, `due:${t.id}`, `esc:${t.id}`];
+        const keys = [`rem:${room?.id}:${t.id}`, `due:${room?.id}:${t.id}`, `esc:${room?.id}:${t.id}`];
         const fire = (key: string, title: string, body: string) => { if (!localStorage.getItem(key)) { localStorage.setItem(key, '1'); localNotify(title, body, key); notify(body); } };
         if (now >= due - reminder && now < due && t.member_id === me.id) fire(keys[0], 'Cleaning reminder', 'Your bathroom cleaning duty starts soon.');
         if (now >= due && now < due + 60_000 && t.member_id === me.id) fire(keys[1], 'Cleaning duty is due', 'Please clean the bathroom and confirm completion.');
@@ -153,34 +175,52 @@ export default function Home() {
       });
     };
     check(); const timer = window.setInterval(check, 30_000); return () => window.clearInterval(timer);
-  }, [user, me?.id, tasks, schedules, localNotify, notify]);
+  }, [user, me?.id, tasks, schedules, room?.id, localNotify, notify]);
 
   const login = async () => {
     if (!email.trim()) return;
     setBusy(true); setError('');
     try {
       const db = await supabase();
-      const { error: e } = await db.auth.signInWithOtp({ email: email.trim(), options: { emailRedirectTo: window.location.origin } });
+      const redirect = `${window.location.origin}${window.location.pathname}${window.location.search}`;
+      const { error: e } = await db.auth.signInWithOtp({ email: email.trim(), options: { emailRedirectTo: redirect } });
       if (e) throw e;
       setLoginSent(true);
     } catch (e) { setError(e instanceof Error ? e.message : 'Unable to send the sign-in link.'); }
     finally { setBusy(false); }
   };
 
-  const logout = async () => { const db = await supabase(); await db.auth.signOut(); setUser(null); setRoom(null); setRooms([]); setMembers([]); };
+  const logout = async () => { const db = await supabase(); await db.auth.signOut(); setUser(null); setRoom(null); setRooms([]); setMembers([]); setSchedules([]); setTasks([]); setNotices([]); };
 
   const createRoom = async () => {
     if (!roomName.trim()) return;
     setBusy(true);
-    try { const db = await supabase(); const { data, error: e } = await db.rpc('create_room', { p_name: roomName.trim(), p_timezone: Intl.DateTimeFormat().resolvedOptions().timeZone || 'Asia/Dhaka' }); if (e) throw e; setRoomName(''); setShowAddRoom(false); notify('New household created ✓'); const next = rooms.find((r) => r.id === data) || null; if (next) { setRoom(next); await loadRoom(next); } else await refresh(); }
-    catch (e) { notify(e instanceof Error ? e.message : 'Unable to create household'); } finally { setBusy(false); }
+    try {
+      const db = await supabase();
+      const { data, error: e } = await db.rpc('create_room', { p_name: roomName.trim(), p_timezone: Intl.DateTimeFormat().resolvedOptions().timeZone || 'Asia/Dhaka' });
+      if (e) throw e;
+      setRoomName(''); setShowAddRoom(false); notify('New household created ✓');
+      const { data: next, error: nextError } = await db.from('rooms').select('id,name,owner_user_id,timezone').eq('id', data).single();
+      if (nextError) throw nextError;
+      setRooms((current) => [...current.filter((r) => r.id !== next.id), next]); setRoom(next); await loadRoom(next);
+    } catch (e) { notify(e instanceof Error ? e.message : 'Unable to create household'); }
+    finally { setBusy(false); }
   };
 
   const joinRoom = async () => {
     if (!joinCode.trim()) return;
     setBusy(true);
-    try { const db = await supabase(); const { data, error: e } = await db.rpc('accept_room_invite', { p_code: joinCode.trim(), p_name: name.trim() || null }); if (e) throw e; setJoinCode(''); setShowJoin(false); notify('Joined household ✓'); await refresh(); const joined = rooms.find((r) => r.id === data); if (joined) { setRoom(joined); await loadRoom(joined); } }
-    catch (e) { notify(e instanceof Error ? e.message : 'Invalid or expired invite'); } finally { setBusy(false); }
+    try {
+      const db = await supabase();
+      const { data: joinedId, error: e } = await db.rpc('accept_room_invite', { p_code: joinCode.trim(), p_name: name.trim() || null });
+      if (e) throw e;
+      const { data: joined, error: joinedError } = await db.from('rooms').select('id,name,owner_user_id,timezone').eq('id', joinedId).single();
+      if (joinedError || !joined) throw joinedError || new Error('Joined household could not be loaded.');
+      setRooms((current) => [...current.filter((r) => r.id !== joined.id), joined]); setRoom(joined); setJoinCode(''); setShowJoin(false); notify('Joined household ✓');
+      await loadRoom(joined);
+      const url = new URL(window.location.href); url.searchParams.delete('join'); window.history.replaceState({}, '', url.toString());
+    } catch (e) { notify(e instanceof Error ? e.message : 'Invalid or expired invite'); }
+    finally { setBusy(false); }
   };
 
   const makeInvite = async () => {
@@ -194,18 +234,20 @@ export default function Home() {
     setBusy(true);
     try {
       const db = await supabase(); const del = await db.from('cleaning_schedules').delete().eq('room_id', room.id); if (del.error) throw del.error;
-      const start = new Date().getDay();
+      const start = zonedParts(room.timezone).weekday;
       const rows = active.map((m, i) => ({ room_id: room.id, member_id: m.id, weekday: (start + i) % 7, duty_time: dutyTime, reminder_minutes: 15, escalation_minutes: 120, duration_minutes: 15, title: 'Bathroom cleaning', active: true }));
       const q = await db.from('cleaning_schedules').insert(rows).select(); if (q.error) throw q.error;
       await db.rpc('ensure_room_tasks', { p_room_id: room.id, p_days: 14 }); setSchedules(q.data || []); notify('Weekly rotation generated ✓'); await loadRoom(room);
-    } catch (e) { notify(e instanceof Error ? e.message : 'Unable to generate rotation'); } finally { setBusy(false); }
+    } catch (e) { notify(e instanceof Error ? e.message : 'Unable to generate rotation'); }
+    finally { setBusy(false); }
   };
 
   const complete = async () => {
-    if (!todayTask || !me) return;
+    if (!todayTask || !me || todayTask.member_id !== me.id) return;
     setBusy(true);
     try { const db = await supabase(); const { error: e } = await db.rpc('complete_cleaning_task', { p_task_id: todayTask.id, p_note: 'Confirmed from Roommate Cleaning Manager' }); if (e) throw e; notify('Cleaning confirmed ✓ — next duty has been notified.'); await loadRoom(room!); }
-    catch (e) { notify(e instanceof Error ? e.message : 'Unable to confirm cleaning'); } finally { setBusy(false); }
+    catch (e) { notify(e instanceof Error ? e.message : 'Unable to confirm cleaning'); }
+    finally { setBusy(false); }
   };
 
   const enableNotifications = async () => {
@@ -214,17 +256,26 @@ export default function Home() {
       if (!('Notification' in window) || !('serviceWorker' in navigator) || !('PushManager' in window)) throw new Error('Push notifications are not supported by this browser.');
       const permission = await Notification.requestPermission(); if (permission !== 'granted') throw new Error('Notification permission was not granted.');
       const registration = await navigator.serviceWorker.ready;
-      const response = await fetch('/api/push/config'); const { publicKey } = await response.json();
-      const subscription = await registration.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: b64ToBytes(publicKey) });
+      const response = await fetch('/api/push/config'); const config = await response.json();
+      if (!config.publicKey) throw new Error('Push notification configuration is unavailable.');
+      let subscription = await registration.pushManager.getSubscription();
+      if (!subscription) subscription = await registration.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: b64ToBytes(config.publicKey) });
       const json = subscription.toJSON(); if (!json.endpoint || !json.keys?.p256dh || !json.keys?.auth) throw new Error('Could not create push subscription.');
       const db = await supabase(); const { error: e } = await db.from('notification_subscriptions').upsert({ member_id: me.id, endpoint: json.endpoint, p256dh: json.keys.p256dh, auth: json.keys.auth }, { onConflict: 'endpoint' }); if (e) throw e;
       notify('Notifications enabled ✓');
     } catch (e) { notify(e instanceof Error ? e.message : 'Unable to enable notifications'); }
   };
 
-  const markRead = async (id: string) => { const db = await supabase(); await db.from('notification_events').update({ read_at: new Date().toISOString() }).eq('id', id); setNotices((x) => x.map((n) => n.id === id ? { ...n, read_at: new Date().toISOString() } : n)); };
+  const markRead = async (id: string) => {
+    try {
+      const db = await supabase();
+      const { error: e } = await db.rpc('mark_notification_read', { p_notification_id: id });
+      if (e) throw e;
+      setNotices((x) => x.map((n) => n.id === id ? { ...n, read_at: new Date().toISOString() } : n));
+    } catch (e) { notify(e instanceof Error ? e.message : 'Unable to mark notification as read'); }
+  };
 
-  const install = async () => { if (window.__roommateInstallPrompt) { await window.__roommateInstallPrompt.prompt(); setInstallPrompt(false); } };
+  const install = async () => { if (window.__roommateInstallPrompt) { await window.__roommateInstallPrompt.prompt(); window.__roommateInstallPrompt = undefined; setInstallPrompt(false); } };
 
   if (loading) return <main className="shell"><div className="card empty">Loading your cleaning manager…</div></main>;
 
@@ -240,8 +291,8 @@ export default function Home() {
 
     <div className="toolbar"><div className="row"><select className="input compact" value={room.id} onChange={(e)=>{const r=rooms.find((x)=>x.id===e.target.value);if(r){setRoom(r);void loadRoom(r)}}}>{rooms.map((r)=><option key={r.id} value={r.id}>{r.name}</option>)}</select><button className="btn secondary" onClick={()=>setShowAddRoom(true)}><Plus size={16}/> New</button><button className="btn secondary" onClick={()=>setShowJoin(true)}>Join</button></div><div className="row"><button className="btn secondary" onClick={()=>void enableNotifications()}><Bell size={16}/> Notifications</button>{installPrompt&&<button className="btn primary" onClick={()=>void install()}>Install app</button>}<button className="btn secondary" onClick={()=>setShowSettings(!showSettings)}><Settings size={16}/></button></div></div>
 
-    {showAddRoom&&<section className="card modal-card"><div className="section-title"><h2>Create household</h2><button className="btn secondary" onClick={()=>setShowAddRoom(false)}>Close</button></div><div className="form"><input className="input" placeholder="Household name" value={roomName} onChange={(e)=>setRoomName(e.target.value)}/><button className="btn primary" onClick={()=>void createRoom()}>Create</button></div></section>}
-    {showJoin&&<section className="card modal-card"><div className="section-title"><h2>Join household</h2><button className="btn secondary" onClick={()=>setShowJoin(false)}>Close</button></div><div className="form"><input className="input" placeholder="Invite code" value={joinCode} onChange={(e)=>setJoinCode(e.target.value)}/><input className="input" placeholder="Display name" value={name} onChange={(e)=>setName(e.target.value)}/><button className="btn primary" onClick={()=>void joinRoom()}>Join</button></div></section>}
+    {showAddRoom&&<section className="card modal-card"><div className="section-title"><h2>Create household</h2><button className="btn secondary" onClick={()=>setShowAddRoom(false)}>Close</button></div><div className="form"><input className="input" placeholder="Household name" value={roomName} onChange={(e)=>setRoomName(e.target.value)}/><button className="btn primary" disabled={busy} onClick={()=>void createRoom()}>Create</button></div></section>}
+    {showJoin&&<section className="card modal-card"><div className="section-title"><h2>Join household</h2><button className="btn secondary" onClick={()=>setShowJoin(false)}>Close</button></div><div className="form"><input className="input" placeholder="Invite code" value={joinCode} onChange={(e)=>setJoinCode(e.target.value)}/><input className="input" placeholder="Display name" value={name} onChange={(e)=>setName(e.target.value)}/><button className="btn primary" disabled={busy} onClick={()=>void joinRoom()}>Join</button></div></section>}
 
     {showSettings&&<section className="card modal-card"><div className="section-title"><h2>Household settings</h2><button className="btn secondary" onClick={()=>setShowSettings(false)}>Close</button></div><p className="muted small">Timezone: {room.timezone}</p>{isAdmin&&<><div className="form"><label className="small">Duty time for weekly rotation<input className="input" type="time" value={dutyTime} onChange={(e)=>setDutyTime(e.target.value)}/></label><button className="btn primary" disabled={busy} onClick={()=>void rotate()}>Generate / reset weekly rotation</button></div><div className="invite-box"><strong>Invite roommates</strong><p className="muted small">Create a private join link. Share it only with people you trust.</p><button className="btn secondary" onClick={()=>void makeInvite()}><Share2 size={16}/> Create invite</button>{invite&&<div className="invite-link"><code>{invite}</code><button className="btn secondary" onClick={()=>navigator.clipboard?.writeText(invite)}><Copy size={15}/></button></div>}</div></>}</section>}
 
@@ -255,7 +306,7 @@ export default function Home() {
       <section className="card"><div className="section-title"><div><h2><Bell size={18}/> Notifications</h2><div className="muted small">Reminders, overdue alerts and next-duty updates</div></div>{unread>0&&<span className="badge late">{unread} unread</span>}</div>{notices.length?notices.slice(0,8).map((n)=><div className="task" key={n.id} onClick={()=>!n.read_at&&void markRead(n.id)}><div><strong>{n.title}</strong><div className="muted small">{n.body}</div><div className="muted small">{new Date(n.created_at).toLocaleString()}</div></div>{!n.read_at&&<span className="badge pending">New</span>}</div>):<div className="empty">You’re all caught up.</div>}</section>
     </div>
 
-    <section className="card roadmap"><h2>Automation status</h2><div className="task"><span>Account & household isolation</span><span className="badge done">Active</span></div><div className="task"><span>Weekly task generation</span><span className="badge done">Active</span></div><div className="task"><span>Realtime in-app alerts</span><span className="badge done">Active</span></div><div className="task"><span>Browser notification subscription</span><span className="badge pending">Enable</span></div><div className="task"><span>Server-side background push engine</span><span className="badge pending">Next deployment layer</span></div></section>
+    <section className="card roadmap"><h2>Automation status</h2><div className="task"><span>Account & household isolation</span><span className="badge done">Active</span></div><div className="task"><span>Weekly task generation</span><span className="badge done">Active</span></div><div className="task"><span>Realtime in-app alerts</span><span className="badge done">Active</span></div><div className="task"><span>Browser notification subscription</span><span className="badge pending">Enable</span></div><div className="task"><span>Server-side background push engine</span><span className="badge done">Active</span></div></section>
 
     {error&&<div className="toast">{error}</div>}{toast&&<div className="toast">{toast}</div>}
   </main>;
