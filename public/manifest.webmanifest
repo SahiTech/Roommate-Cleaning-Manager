@@ -1,1 +1,12 @@
-{"name":"Roommate Cleaning Manager","short_name":"Roommate Clean","start_url":"/","display":"standalone","background_color":"#f5f7fb","theme_color":"#111827","description":"Shared roommate cleaning duty manager"}
+{
+  "name":"Roommate Cleaning Manager",
+  "short_name":"Roommate Clean",
+  "start_url":"/",
+  "scope":"/",
+  "display":"standalone",
+  "orientation":"portrait",
+  "background_color":"#f5f7fb",
+  "theme_color":"#111827",
+  "description":"Shared household cleaning schedules, confirmations and alerts",
+  "icons":[{"src":"/icon.svg","sizes":"any","type":"image/svg+xml","purpose":"any maskable"}]
+}
