@@ -15,7 +15,14 @@ export async function supabase(): Promise<SupabaseClient> {
         if (!response.ok || !data.url || !data.key) {
           throw new Error(data.error || 'Supabase configuration is unavailable.');
         }
-        return createBrowserClient(data.url, data.key) as SupabaseClient;
+        return createBrowserClient(data.url, data.key, {
+          auth: {
+            flowType: 'implicit',
+            detectSessionInUrl: true,
+            persistSession: true,
+            autoRefreshToken: true,
+          },
+        }) as SupabaseClient;
       })
       .catch((error) => {
         clientPromise = undefined;
