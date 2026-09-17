@@ -26,15 +26,19 @@ export function supabase(): SupabaseClient {
       throw new Error('Supabase configuration is unavailable.');
     }
 
+    // Use the browser/implicit flow for passwordless email sign-in.
+    // This avoids requiring a PKCE verifier to survive an email-client/browser hop.
     client = createBrowserClient(url, key, {
       auth: {
-        flowType: 'pkce',
-        detectSessionInUrl: false,
+        flowType: 'implicit',
+        detectSessionInUrl: true,
         persistSession: true,
         autoRefreshToken: true,
       },
     }) as SupabaseClient;
 
+    // Login itself is routed through the server endpoint so the app can enforce
+    // the canonical production redirect URL and keep authentication logic in one place.
     const auth = client.auth as typeof client.auth & { __roommateServerLoginPatched?: boolean };
     if (!auth.__roommateServerLoginPatched) {
       const original = auth.signInWithOtp.bind(auth);
@@ -48,11 +52,17 @@ export function supabase(): SupabaseClient {
             });
             const body = (await response.json()) as { error?: string };
             if (!response.ok) {
-              return { data: { user: null, session: null }, error: new Error(body.error || 'Unable to send the sign-in link.') } as any;
+              return {
+                data: { user: null, session: null },
+                error: new Error(body.error || 'Unable to send the sign-in link.'),
+              } as any;
             }
             return { data: { user: null, session: null }, error: null } as any;
           } catch (error) {
-            return { data: { user: null, session: null }, error: new Error(error instanceof Error ? error.message : 'Unable to send the sign-in link.') } as any;
+            return {
+              data: { user: null, session: null },
+              error: new Error(error instanceof Error ? error.message : 'Unable to send the sign-in link.'),
+            } as any;
           }
         }
         return original(credentials, options);
