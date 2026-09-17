@@ -1,6 +1,5 @@
 import { NextResponse } from 'next/server';
-import { createServerClient } from '@supabase/ssr';
-import { cookies } from 'next/headers';
+import { createClient } from '@supabase/supabase-js';
 
 export const dynamic = 'force-dynamic';
 
@@ -33,26 +32,21 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: 'Authentication configuration is missing.' }, { status: 500 });
     }
 
-    const cookieStore = await cookies();
-    const response = NextResponse.json({ ok: true });
-
-    const client = createServerClient(url, key, {
-      cookies: {
-        getAll() {
-          return cookieStore.getAll();
-        },
-        setAll(cookiesToSet) {
-          cookiesToSet.forEach(({ name, value, options }) => {
-            response.cookies.set(name, value, options);
-          });
-        },
+    // Explicitly use the browser/implicit flow so the email link does not
+    // depend on a PKCE verifier stored in a browser cookie.
+    const client = createClient(url, key, {
+      auth: {
+        flowType: 'implicit',
+        persistSession: false,
+        autoRefreshToken: false,
+        detectSessionInUrl: false,
       },
     });
 
     const { error } = await client.auth.signInWithOtp({
       email: email.trim(),
       options: {
-        emailRedirectTo: `${getAppUrl()}/auth/confirm`,
+        emailRedirectTo: getAppUrl(),
       },
     });
 
@@ -60,7 +54,7 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: error.message }, { status: 400 });
     }
 
-    return response;
+    return NextResponse.json({ ok: true });
   } catch (error) {
     return NextResponse.json(
       { error: error instanceof Error ? error.message : 'Unable to send sign-in link.' },
