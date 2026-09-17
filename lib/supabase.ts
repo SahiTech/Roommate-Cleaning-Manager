@@ -1,34 +1,22 @@
 import { createBrowserClient } from '@supabase/ssr';
 import type { SupabaseClient } from '@supabase/supabase-js';
 
-let clientPromise: Promise<SupabaseClient> | undefined;
+let client: SupabaseClient | undefined;
 
-export async function supabase(): Promise<SupabaseClient> {
-  if (typeof window === 'undefined') {
-    throw new Error('Supabase browser client can only be created in the browser.');
+export function supabase(): SupabaseClient {
+  if (typeof window === 'undefined') throw new Error('Supabase browser client can only be created in the browser.');
+  if (!client) {
+    const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
+    const key = process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY;
+    if (!url || !key) throw new Error('Supabase configuration is unavailable.');
+    client = createBrowserClient(url, key, {
+      auth: {
+        flowType: 'implicit',
+        detectSessionInUrl: true,
+        persistSession: true,
+        autoRefreshToken: true,
+      },
+    }) as SupabaseClient;
   }
-
-  if (!clientPromise) {
-    clientPromise = fetch('/api/config', { cache: 'no-store' })
-      .then(async (response) => {
-        const data = await response.json();
-        if (!response.ok || !data.url || !data.key) {
-          throw new Error(data.error || 'Supabase configuration is unavailable.');
-        }
-        return createBrowserClient(data.url, data.key, {
-          auth: {
-            flowType: 'implicit',
-            detectSessionInUrl: true,
-            persistSession: true,
-            autoRefreshToken: true,
-          },
-        }) as SupabaseClient;
-      })
-      .catch((error) => {
-        clientPromise = undefined;
-        throw error;
-      });
-  }
-
-  return clientPromise;
+  return client;
 }
