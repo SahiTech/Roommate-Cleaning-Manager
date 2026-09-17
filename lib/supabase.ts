@@ -1,4 +1,4 @@
-import { createBrowserClient } from '@supabase/ssr';
+import { createClient } from '@supabase/supabase-js';
 import type { SupabaseClient } from '@supabase/supabase-js';
 
 declare global {
@@ -11,7 +11,7 @@ let client: SupabaseClient | undefined;
 
 export function supabase(): SupabaseClient {
   if (typeof window === 'undefined') {
-    throw new Error('Supabase browser client can only be created in the browser.');
+    throw new Error('Supabase client can only be created in the browser.');
   }
 
   if (!client) {
@@ -26,45 +26,16 @@ export function supabase(): SupabaseClient {
       throw new Error('Supabase configuration is unavailable.');
     }
 
-    client = createBrowserClient(url, key, {
+    // Keep authentication deliberately simple: browser-only implicit flow.
+    // No PKCE verifier/cookie exchange is required for the magic-link flow.
+    client = createClient(url, key, {
       auth: {
         flowType: 'implicit',
         detectSessionInUrl: true,
         persistSession: true,
         autoRefreshToken: true,
       },
-    }) as SupabaseClient;
-
-    const auth = client.auth as typeof client.auth & { __roommateServerLoginPatched?: boolean };
-    if (!auth.__roommateServerLoginPatched) {
-      const original = auth.signInWithOtp.bind(auth);
-      auth.signInWithOtp = (async (credentials: any, _options?: any) => {
-        if (credentials?.email) {
-          try {
-            const response = await fetch('/api/auth/login', {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ email: credentials.email }),
-            });
-            const body = (await response.json()) as { error?: string };
-            if (!response.ok) {
-              return {
-                data: { user: null, session: null },
-                error: new Error(body.error || 'Unable to send the sign-in link.'),
-              } as any;
-            }
-            return { data: { user: null, session: null }, error: null } as any;
-          } catch (error) {
-            return {
-              data: { user: null, session: null },
-              error: new Error(error instanceof Error ? error.message : 'Unable to send the sign-in link.'),
-            } as any;
-          }
-        }
-        return original(credentials);
-      }) as typeof auth.signInWithOtp;
-      auth.__roommateServerLoginPatched = true;
-    }
+    });
   }
 
   return client;
