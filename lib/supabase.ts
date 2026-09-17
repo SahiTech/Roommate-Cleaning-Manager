@@ -18,8 +18,8 @@ export function supabase(): SupabaseClient {
     if (!url || !key) throw new Error('Supabase configuration is unavailable.');
     client = createBrowserClient(url, key, {
       auth: {
-        flowType: 'implicit',
-        detectSessionInUrl: true,
+        flowType: 'pkce',
+        detectSessionInUrl: false,
         persistSession: true,
         autoRefreshToken: true,
       },
