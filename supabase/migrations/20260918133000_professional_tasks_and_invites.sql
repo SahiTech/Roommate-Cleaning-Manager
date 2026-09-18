@@ -30,9 +30,9 @@ RETURNS text LANGUAGE plpgsql SECURITY DEFINER SET search_path TO 'public' AS $f
 DECLARE v_code text;
 BEGIN
  IF NOT public.is_room_admin(p_room_id) THEN RAISE EXCEPTION 'Admin access required'; END IF;
- v_code:=upper(substr(encode(gen_random_bytes(9),'hex'),1,12));
+ v_code:=upper(substr(encode(extensions.gen_random_bytes(9),'hex'),1,12));
  INSERT INTO public.room_invites(room_id,created_by,code_hash,expires_at,max_uses,uses,revoked)
- VALUES(p_room_id,auth.uid(),encode(digest(v_code,'sha256'),'hex'),now()+interval '7 days',20,0,false);
+ VALUES(p_room_id,auth.uid(),encode(extensions.digest(v_code,'sha256'),'hex'),now()+interval '7 days',20,0,false);
  RETURN v_code;
 END;$function$;
 
@@ -42,7 +42,7 @@ DECLARE v_inv public.room_invites%rowtype; v_name text;
 BEGIN
  IF auth.uid() IS NULL THEN RAISE EXCEPTION 'Authentication required'; END IF;
  SELECT * INTO v_inv FROM public.room_invites
- WHERE code_hash=encode(digest(upper(trim(p_code)),'sha256'),'hex')
+ WHERE code_hash=encode(extensions.digest(upper(trim(p_code)),'sha256'),'hex')
  AND revoked=false AND expires_at>now() AND uses<max_uses FOR UPDATE;
  IF NOT FOUND THEN RAISE EXCEPTION 'Invite is invalid, expired, or full'; END IF;
  IF EXISTS(SELECT 1 FROM public.members WHERE room_id=v_inv.room_id AND user_id=auth.uid() AND active=true) THEN RETURN v_inv.room_id; END IF;
