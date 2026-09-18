@@ -1,4 +1,4 @@
-import { createClient } from '@supabase/supabase-js';
+import { createBrowserClient } from '@supabase/ssr';
 import type { SupabaseClient } from '@supabase/supabase-js';
 
 declare global {
@@ -11,7 +11,7 @@ let client: SupabaseClient | undefined;
 
 export function supabase(): SupabaseClient {
   if (typeof window === 'undefined') {
-    throw new Error('Supabase client can only be created in the browser.');
+    throw new Error('Supabase browser client can only be created in the browser.');
   }
 
   if (!client) {
@@ -26,16 +26,14 @@ export function supabase(): SupabaseClient {
       throw new Error('Supabase configuration is unavailable.');
     }
 
-    // Keep authentication deliberately simple: browser-only implicit flow.
-    // No PKCE verifier/cookie exchange is required for the magic-link flow.
-    client = createClient(url, key, {
+    client = createBrowserClient(url, key, {
       auth: {
         flowType: 'implicit',
         detectSessionInUrl: true,
         persistSession: true,
         autoRefreshToken: true,
       },
-    });
+    }) as SupabaseClient;
   }
 
   return client;
