@@ -11,3 +11,17 @@
 .mobile-nav-head{box-shadow:0 4px 16px rgba(16,24,40,.04)}
 @media(max-width:700px){.app-nav.open{display:grid;grid-template-columns:1fr;gap:4px;padding:8px}.app-nav .nav-item{min-height:52px}.app-nav.open .nav-item:last-child{grid-column:auto}.mobile-nav-head{margin-bottom:8px}.module-home{margin-top:0}}
 @media(min-width:701px){.app-nav{max-width:430px}.app-nav .nav-item{min-height:48px}}
+
+/* Final workspace navigation: true app-style drawer on every viewport */
+.mobile-nav-head{display:flex;align-items:center;justify-content:space-between;gap:12px;background:rgba(255,255,255,.96);backdrop-filter:blur(16px);border:1px solid #e4e7ec;border-radius:18px;padding:10px 12px;margin:0 0 10px;box-shadow:0 6px 20px rgba(16,24,40,.05)}
+.mobile-menu-btn{min-width:104px;justify-content:center}
+.app-nav{display:none !important;position:static !important;width:100%;max-width:none !important;grid-template-columns:1fr !important;flex-direction:column;gap:5px;padding:8px;margin:0 0 18px;background:rgba(255,255,255,.97);backdrop-filter:blur(16px);border:1px solid #e4e7ec;border-radius:20px;box-shadow:0 12px 32px rgba(16,24,40,.08);overflow:visible}
+.app-nav.open{display:grid !important;grid-template-columns:1fr !important}
+.app-nav .nav-item{display:flex;width:100%;min-height:52px;box-sizing:border-box;align-items:center;justify-content:flex-start;padding:14px 15px;border-radius:14px;gap:11px;white-space:normal;text-align:left}
+.app-nav .nav-item>svg{flex:0 0 auto}
+.app-nav .nav-item>span:nth-child(2){flex:1;min-width:0}
+.app-nav .nav-item .nav-soon{flex:0 0 auto;margin-left:auto}
+.app-nav .nav-item .nav-chevron{flex:0 0 auto;margin-left:auto;opacity:.45;font-size:21px;line-height:1}
+.app-nav .nav-item:hover:not(.active){background:#f2f4f7;color:#101828;transform:none}
+@media(max-width:700px){.mobile-nav-head{margin-bottom:8px}.app-nav.open{display:grid !important;grid-template-columns:1fr !important}.app-nav .nav-item{min-height:54px}}
+@media(min-width:701px){.app-nav{max-height:none}.app-nav .nav-item{min-height:50px}}
