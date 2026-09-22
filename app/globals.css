@@ -25,3 +25,25 @@
 .app-nav .nav-item:hover:not(.active){background:#f2f4f7;color:#101828;transform:none}
 @media(max-width:700px){.mobile-nav-head{margin-bottom:8px}.app-nav.open{display:grid !important;grid-template-columns:1fr !important}.app-nav .nav-item{min-height:54px}}
 @media(min-width:701px){.app-nav{max-height:none}.app-nav .nav-item{min-height:50px}}
+
+/* Meal management module */
+.meal-shell{display:flex;flex-direction:column;gap:14px}
+.meal-tabs{display:flex;gap:6px;overflow:auto;padding:4px;background:#f2f4f7;border:1px solid #eaecf0;border-radius:14px}
+.meal-tab{border:0;background:transparent;padding:10px 14px;border-radius:10px;font:inherit;font-weight:700;color:#667085;white-space:nowrap;cursor:pointer}
+.meal-tab.active{background:#fff;color:#101828;box-shadow:0 2px 8px rgba(16,24,40,.08)}
+.meal-stats{grid-template-columns:repeat(4,minmax(0,1fr))}
+.inset-card{box-shadow:none;border:1px solid #eaecf0;background:#fcfcfd}
+.finance-row{display:grid;grid-template-columns:1fr auto;gap:12px;align-items:center}
+.meal-table{display:flex;flex-direction:column;gap:8px}
+.meal-entry-row{display:grid;grid-template-columns:minmax(150px,1fr) 100px 100px 100px auto;gap:8px;align-items:center;padding:10px;border:1px solid #eaecf0;border-radius:12px;background:#fff}
+.meal-entry-row:before{content:'B';font-weight:800;color:#667085;position:absolute;opacity:0}
+.meal-num{text-align:center}
+.meal-rate-form{grid-template-columns:repeat(4,minmax(120px,1fr)) auto;align-items:end}
+.text-due{color:#b42318}.text-credit{color:#027a48}
+@media(max-width:760px){
+ .meal-stats{grid-template-columns:repeat(2,minmax(0,1fr))}
+ .meal-entry-row{grid-template-columns:1fr 70px 70px 70px}
+ .meal-entry-row .btn{grid-column:1/-1;width:100%}
+ .meal-rate-form{grid-template-columns:1fr 1fr}
+ .finance-row{grid-template-columns:1fr}
+}
